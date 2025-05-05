@@ -37,13 +37,10 @@ class BaseLangAgent(LanguageAgent):
         self.workers = {}
 
     def add_entity(self, entity_type, entity_id):
-        # Determinar qué worker usar basado en la configuración
-        if os.environ.get('OPENAI_API_TYPE', '').lower() == 'ollama':
-            self.workers[(entity_type, entity_id)] = OllamaWorker(
-                ctrl_type=entity_type, actor_id=entity_id)
-        else:
-            self.workers[(entity_type, entity_id)] = AzureGPTWorker(
-                ctrl_type=entity_type, actor_id=entity_id)
+        # Forcing the use of OllamaWorker exclusively
+        fc_logger.info(f'Assigning OllamaWorker to entity ({entity_type}, {entity_id})')
+        self.workers[(entity_type, entity_id)] = OllamaWorker(
+            ctrl_type=entity_type, actor_id=entity_id)
 
     def remove_entity(self, entity_type, entity_id):
         del self.workers[(entity_type, entity_id)]

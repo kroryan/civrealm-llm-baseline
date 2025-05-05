@@ -1,1 +1,11 @@
- CAUTION: You have chosen too much <% action %> operation. You should try various kind of action. Try to look for more information in manual!
+CAUTION: You have been repeatedly choosing the "<% action %>" action too many times. This repetitive behavior is not optimal for game strategy. Consider these alternatives:
+
+1. If you're an Explorer: Balance between exploring new areas and strategic movements. Consider which unexplored areas might have valuable resources.
+
+2. If you're a Settler: Look for optimal city placement near resources, rivers, or on plains/grassland. Don't just wander aimlessly.
+
+3. If you're a Worker: Prioritize improving resource tiles with irrigation or mines, or building roads to connect cities.
+
+IMPORTANT: Always verify that your chosen action is in the available action list. Look at the terrain and resources around you to make strategic decisions that advance your civilization.
+
+Try searching the manual for more strategic advice using the 'manualAndHistorySearch' command, then make a more varied and strategic decision based on your current situation.

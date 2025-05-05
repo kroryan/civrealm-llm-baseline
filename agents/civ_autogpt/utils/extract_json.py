@@ -1,40 +1,128 @@
 import json
-
+import re
+from civrealm.freeciv.utils.freeciv_logging import fc_logger
 
 def extract_json(text):
-    start_index = text.find("{")
-    end_index = text.rfind("}") + 1
-    json_string = text[start_index:end_index]
+    """
+    Extract JSON from text, with enhanced handling for Ollama response formats.
     
-    try:
-        json_data = json.loads(json_string)
-    except json.JSONDecodeError:
+    Args:
+        text: The text to extract JSON from
+    
+    Returns:
+        A dictionary with extracted JSON data or a default response
+    """
+    if not text:
+        return default_command_json()
+    
+    # If text is already a JSON string, parse it
+    if isinstance(text, str) and text.startswith('{') and text.endswith('}'):
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+    
+    # If input is already a dictionary, return it directly
+    if isinstance(text, dict):
         return text
-
-    return json.dumps(json_data)
-
-
-def deprecated_extract_json(text):
-    # find json
-    start_index = text.find("{")
-    end_index = text.rfind("}") + 1
-    json_string = text[start_index:end_index]
     
-    # extract json to dict
-    try:
-        json_data = json.loads(json_string)
-    except json.JSONDecodeError:
-        return text
+    # Find JSON block in code blocks (```json...``` format)
+    if isinstance(text, str):
+        json_block_match = re.search(r'```(?:json)?\s*({.*?})\s*```', text, re.DOTALL)
+        if json_block_match:
+            json_string = json_block_match.group(1)
+            try:
+                json_data = json.loads(json_string)
+                fc_logger.debug(f"Successfully parsed JSON from code block")
+                return json_data
+            except json.JSONDecodeError:
+                fc_logger.debug("Failed to parse JSON from code block, trying general extraction")
+        
+        # Standard JSON extraction
+        start_index = text.find("{")
+        end_index = text.rfind("}") + 1
+        
+        if start_index == -1 or end_index == 0:
+            # No JSON found, try to extract an action from plain text
+            return extract_action_from_text(text)
+        
+        json_string = text[start_index:end_index]
+        
+        try:
+            json_data = json.loads(json_string)
+            fc_logger.debug(f"Successfully parsed JSON")
+            return json_data
+        except json.JSONDecodeError:
+            # Try to clean the JSON string
+            try:
+                # Remove any newlines, tabs, and extra spaces
+                cleaned_json = json_string.replace('\n', ' ').replace('\t', ' ')
+                # Replace escaped quotes with regular quotes
+                cleaned_json = cleaned_json.replace('\\"', '"').replace("\\'", "'")
+                # Fix unbalanced braces if needed
+                brace_diff = cleaned_json.count('{') - cleaned_json.count('}')
+                if brace_diff > 0:
+                    cleaned_json += '}' * brace_diff
+                elif brace_diff < 0:
+                    cleaned_json = '{' * abs(brace_diff) + cleaned_json
+                
+                # Try to parse the cleaned JSON
+                json_data = json.loads(cleaned_json)
+                fc_logger.debug(f"Successfully parsed cleaned JSON")
+                return json_data
+            except json.JSONDecodeError:
+                # If JSON parsing fails, try to extract an action from the text
+                return extract_action_from_text(text)
     
-    # nested process inner json
-    for key, value in json_data.items():
-        if isinstance(value, str):
-            # if str, extract to json
-            nested_json = extract_json(value)
-            if nested_json is not None:
-                json_data[key] = nested_json
-    
-    return str(json_data)
+    # Fallback
+    return default_command_json()
 
-# text_with_nested_json = '{"thoughts": {"thought": "I need to generate a guiding action for the user based on the current game state.","reasoning": "The user has provided the current game information, and I have analyzed the situation. I should provide a guiding action for the user to advance the game.","plan": "- identify the command to provide the user with the result\\n- execute the command with the appropriate input\\n- generate the output and return it to the user"},"command": {"name": "finalDecision", "input": {"action": "build"}}}This is my response as an AI assistant. I have analyzed the current game state and determined that the best course of action for the user is to build a settlement. Please let me know if this decision is correct or if you would like me to adjust it based on additional information.'
-# nested_json_data = extract_nested_json(text_with_nested_json)
+def extract_action_from_text(text):
+    """
+    Extract an action from plain text response when JSON parsing fails.
+    
+    Args:
+        text: The text to extract an action from
+    
+    Returns:
+        A dictionary with command structure containing the extracted action
+    """
+    fc_logger.debug(f"Extracting action from plain text")
+    
+    # Common patterns for action mentions in text
+    action_patterns = [
+        r'(?:action|decision)[\s:]+["\']?([a-zA-Z0-9 _]+)["\']?',
+        r'(?:choose|select|use|perform)[\s:]+["\']?([a-zA-Z0-9 _]+)["\']?',
+        r'(?:move|build|explore|keep)[\s:]+["\']?([a-zA-Z0-9 _]+)["\']?',
+        r'I [a-z]+ (?:to )?(?:choose|select|use|perform) ["\']?([a-zA-Z0-9 _]+)["\']?'
+    ]
+    
+    for pattern in action_patterns:
+        if isinstance(text, str):
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                action = match.group(1).strip()
+                fc_logger.debug(f"Extracted action from text: {action}")
+                return {
+                    "command": {
+                        "name": "finalDecision",
+                        "input": {
+                            "action": action
+                        }
+                    }
+                }
+    
+    # If no specific action found, return a default command
+    fc_logger.debug("No action found in text, using default")
+    return default_command_json()
+
+def default_command_json():
+    """Return a default command JSON for fallback"""
+    return {
+        "command": {
+            "name": "finalDecision",
+            "input": {
+                "action": "keep activity"
+            }
+        }
+    }

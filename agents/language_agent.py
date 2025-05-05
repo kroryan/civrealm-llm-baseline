@@ -93,6 +93,9 @@ class LanguageAgent(BaseAgent):
             self.is_new_turn = False
 
     def get_birth_death_entities(self, info):
+        if 'llm_info' not in info:
+            fc_logger.warning("'llm_info' not found in info. Ensure the environment is wrapped with LLMWrapper.")
+            return {}, {}
         birth_entities = {}
         death_entities = {}
         for entity_type in self.entities:

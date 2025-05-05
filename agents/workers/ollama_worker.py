@@ -1,7 +1,6 @@
 import os
 import random
 import json
-import time
 import requests
 
 from langchain.chat_models import ChatOpenAI
@@ -33,18 +32,6 @@ class OllamaWorker(BaseWorker):
         self._load_instruction_prompt()
         self._load_task_prompt()
 
-    def init_llm(self):
-        # Usar ConversationBufferMemory que no requiere un LLM
-        from langchain.memory import ConversationBufferMemory
-
-        # Configurar la memoria sin necesidad de un modelo de lenguaje
-        self.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-        self.chain = None
-
-    def init_index(self):
-        # Skip Pinecone initialization for Ollama
-        self.index = None
-    
     def _load_instruction_prompt(self):
         instruction_prompt = self.prompt_handler.instruction_prompt()
         self.add_user_message_to_dialogue(instruction_prompt)
@@ -53,199 +40,249 @@ class OllamaWorker(BaseWorker):
         task_prompt = self.prompt_handler.task_prompt()
         self.add_user_message_to_dialogue(task_prompt)
 
+    def init_llm(self):
+        # No chain or memory needed for Ollama direct API
+        self.chain = None
+        self.memory = None
+
+    def init_index(self):
+        # No vector index needed for basic Ollama implementation
+        self.index = None
+
     def register_all_commands(self):
-        self.register_command('finalDecision',
-                              self.handle_command_final_decision)
-        self.register_command('suggestion', self.handle_command_suggestion)
+        # Register commands for the agent
+        self.register_command("build city", self.handle_build_city)
+        self.register_command("move", self.handle_move)
+        self.register_command("explore", self.handle_explore)
+        self.register_command("keep activity", self.handle_keep)
+        # Add more command handlers as needed
 
-    def handle_command_suggestion(self, command_input, obs_input_prompt,
-                                  current_avail_actions):
-        exec_action = command_input["suggestion"]
-        return exec_action, ''
+    def handle_build_city(self, args=None):
+        return "build city"
 
-    def handle_command_final_decision(self, command_input, obs_input_prompt,
-                                      current_avail_actions):
-        exec_action = command_input['action']
-        lower_avail_actions = [x.lower() for x in current_avail_actions]
-        if exec_action.lower() not in lower_avail_actions:
-            print(f'{self.name}\'s chosen action "{exec_action}" not in the ' +
-                  f'available action list, available actions are ' +
-                  f'{current_avail_actions}, retrying...')
-            fc_logger.error(
-                f'{self.name}\'s chosen action "{exec_action}"',
-                'not in the available action list, available',
-                f'actions are {current_avail_actions}, retrying...')
-            return None, self.prompt_handler.insist_avail_action()
+    def handle_move(self, args):
+        direction = args[0] if args else "North"
+        return f"move {direction}"
 
-        self.taken_actions_list.append(command_input['action'])
+    def handle_explore(self, args=None):
+        return "auto_explore"
 
-        for move_name in current_avail_actions:
-            if move_name[:4] != "move":
-                continue
-            if self.taken_actions_list_needs_update(move_name, 15, 4):
-                return None, self.prompt_handler.insist_various_actions(
-                    action=move_name)
-
-        return exec_action, ''
-
-    def query_llm(self, stop=None, temperature=0.7, top_p=0.95):
-        fc_logger.debug(f'Querying Ollama with dialogue: {self.dialogue}')
-        
-        api_url = f"{self.ollama_host}/api/chat"
-        
-        # Prepare payload for Ollama API
-        payload = {
-            "model": self.ollama_model,
-            "messages": self.dialogue,
-            "options": {
-                "temperature": temperature,
-                "top_p": top_p
-            }
-        }
-        
-        try:
-            response = requests.post(api_url, json=payload)
-            response.raise_for_status()
-            result = response.json()
-            return {
-                "choices": [
-                    {
-                        "message": {
-                            "content": result["message"]["content"]
-                        }
-                    }
-                ]
-            }
-        except Exception as e:
-            fc_logger.error(f"Error connecting to Ollama: {str(e)}")
-            # Return a fallback response
-            return {
-                "choices": [
-                    {
-                        "message": {
-                            "content": f"{{\"command\": {{\"name\": \"finalDecision\", \"input\": {{\"action\": \"{current_avail_actions[0] if current_avail_actions else ''}\"}}}}}}",
-                        }
-                    }
-                ]
-            }
+    def handle_keep(self, args=None):
+        return "keep activity"
 
     def generate_command(self, prompt: str):
-        self.add_user_message_to_dialogue(prompt +
-                                          self.prompt_handler.insist_json())
-        self.restrict_dialogue()
-        response = self.query_llm()
-        return response
+        """Generate a command using Ollama API."""
+        full_prompt = prompt if len(self.dialogue) == 0 else ""
 
-    def parse_response(self, response):
-        content = response['choices'][0]['message']['content']
-        try:
-            # Try to extract JSON from the response
-            start_index = content.find('{')
-            end_index = content.rfind('}') + 1
-            if start_index >= 0 and end_index > start_index:
-                json_content = content[start_index:end_index]
-                # Fix unbalanced braces
-                rlack = json_content.count("{") - json_content.count("}")
-                if rlack > 0:
-                    json_content = json_content + "}" * rlack
-                elif rlack < 0:
-                    json_content = "{" * abs(rlack) + json_content
-                return json.loads(json_content)
-            else:
-                raise ValueError("No JSON found in response")
-        except Exception as e:
-            fc_logger.error(f"Error parsing JSON response: {str(e)}")
-            # Provide a fallback response
-            return {"command": {"name": "finalDecision", "input": {"action": ""}}}
-
-    def process_command(self, response, obs_input_prompt,
-                        current_avail_actions):
-        # First try to parse the response by the given json format
-        fc_logger.debug(f'Processing response: {response}')
-        try:
-            command_json = self.parse_response(response)
-            command_input = command_json['command']['input']
-            command_name = command_json['command']['name']
-        except Exception as e:
-            fc_logger.error(
-                f'\nRESPONSE:{response}\nCommand json parsing error: {e}')
-            print('Not in given json format, retrying...')
-            return None, self.prompt_handler.insist_json()
-
-        # Then check if the command is valid
-        if command_name not in self.command_handlers:
-            fc_logger.error(f'Unknown command: {command_name}')
-            available_commands = ', '.join(self.command_handlers.keys())
-            prompt_addition = self.prompt_handler.insist_available_commands(
-                available_commands)
-            return None, prompt_addition
-
-        return self.command_handlers[command_name](command_input,
-                                                 obs_input_prompt,
-                                                 current_avail_actions)
-                                                 
-    def get_answer_from_index(self, query):
-        # Simplified version for Ollama without Pinecone
-        return f"I found information about '{query}' in my knowledge base."
-
-    def save_dialogue_to_file(self, save_path):
-        """
-        Save the dialogue to a file.
+        # Create a structured prompt for Ollama
+        messages = []
+        for message in self.dialogue:
+            messages.append({
+                "role": message["role"],
+                "content": message["content"]
+            })
         
-        Args:
-            save_path: The path to save the file to
-        """
+        # Add the new prompt
+        messages.append({
+            "role": "user",
+            "content": prompt
+        })
+
+        # Prepare the request for Ollama
+        request_data = {
+            "model": self.ollama_model,
+            "messages": messages,
+            "temperature": 0.7,
+            "top_p": 0.95,
+            "stream": False
+        }
+
         try:
-            with open(save_path, "w", encoding='utf-8') as f:
-                for message in self.dialogue:
-                    f.write(str(message) + '\n')
-            print(f"Dialogue saved to {save_path}")
+            fc_logger.debug(f"Sending prompt to Ollama: {prompt}")
+            response = requests.post(
+                f"{self.ollama_host}/api/chat",
+                json=request_data
+            )
+            response_data = response.json()
+            
+            if "message" in response_data and "content" in response_data["message"]:
+                fc_logger.debug(f"Ollama response: {response_data['message']['content']}")
+                self.dialogue.append({
+                    "role": "assistant", 
+                    "content": response_data["message"]["content"]
+                })
+                return response_data["message"]["content"]
+            else:
+                fc_logger.error(f"Unexpected Ollama response format: {response_data}")
+                return None
         except Exception as e:
-            fc_logger.error(f"Error saving dialogue to file: {str(e)}")
-            print(f"Error saving dialogue to file: {str(e)}")
+            fc_logger.error(f"Error communicating with Ollama: {str(e)}")
+            return None
+
+    def process_command(self, response: str, input_prompt: str, avail_action_list: list):
+        """Process the command generated by the LLM."""
+        fc_logger.debug(f"Processing command response: {response}")
+        
+        # If the response is None or empty, return None
+        if not response:
+            fc_logger.error("Empty response from Ollama")
+            return None
+            
+        # Log available actions for debugging
+        fc_logger.debug(f"Available actions: {avail_action_list}")
+        
+        # Try to extract a command from the response
+        try:
+            # First, try to parse JSON if it looks like JSON
+            if '{' in response and '}' in response:
+                start_index = response.find('{')
+                end_index = response.rfind('}') + 1
+                json_string = response[start_index:end_index]
+                
+                try:
+                    json_data = json.loads(json_string)
+                    fc_logger.debug(f"Parsed JSON: {json_data}")
+                    
+                    # Check for command structure in GPT format
+                    if "command" in json_data and "input" in json_data["command"]:
+                        if "action" in json_data["command"]["input"]:
+                            action = json_data["command"]["input"]["action"]
+                            fc_logger.debug(f"Found action in JSON: {action}")
+                            # Check if it's a valid action
+                            for available_action in avail_action_list:
+                                if action.lower() == available_action.lower():
+                                    fc_logger.debug(f"Matched action: {available_action}")
+                                    return available_action
+                except json.JSONDecodeError as e:
+                    fc_logger.error(f"Failed to parse JSON from response: {e}")
+            
+            # Direct string matching for actions
+            for action in avail_action_list:
+                if action.lower() in response.lower():
+                    fc_logger.debug(f"Found action via direct match: {action}")
+                    return action
+                    
+            # Try to extract move commands with directions
+            move_directions = ["North", "South", "East", "West", "NorthEast", "NorthWest", "SouthEast", "SouthWest"]
+            for direction in move_directions:
+                move_action = f"move {direction}"
+                if move_action.lower() in response.lower() and move_action in avail_action_list:
+                    fc_logger.debug(f"Found move action: {move_action}")
+                    return move_action
+            
+            # Specific action extraction for common commands
+            if "build city" in response.lower() and "build city" in avail_action_list:
+                return "build city"
+                
+            # If we couldn't extract a valid action, pick a default action
+            if "keep activity" in avail_action_list:
+                fc_logger.debug("Defaulting to 'keep activity'")
+                return "keep activity"
+                
+            # Last resort: random action
+            random_action = random.choice(avail_action_list)
+            fc_logger.debug(f"Selecting random action: {random_action}")
+            return random_action
+            
+        except Exception as e:
+            fc_logger.error(f"Error processing command: {str(e)}")
+            # If all else fails, try to return a safe action or None
+            if "keep activity" in avail_action_list:
+                return "keep activity"
+            return None
 
     def choose_action(self, obs_input_prompt, current_avail_actions):
         """
         Choose an action based on the observation input prompt and available actions.
         
         Args:
-            obs_input_prompt: The observation input prompt
-            current_avail_actions: The list of available actions
+            obs_input_prompt: The prompt containing the current game state
+            current_avail_actions: List of available actions
             
         Returns:
-            str: The chosen action
+            The chosen action or None if an error occurs
         """
-        while True:
+        fc_logger.info(f'Observation input prompt: {obs_input_prompt}')
+        fc_logger.info(f'Available actions: {current_avail_actions}')
+        
+        # If no available actions, return None
+        if not current_avail_actions:
+            fc_logger.info('No available actions. Returning None.')
+            return None
+            
+        # Add instruction to generate JSON format
+        enhanced_prompt = f"{obs_input_prompt}\n\nPlease respond in JSON format with a command object containing a finalDecision action. Example: {{\"command\": {{\"name\": \"finalDecision\", \"input\": {{\"action\": \"[action name from available actions list]\"}}}}}}. Choose from these available actions: {current_avail_actions}"
+        
+        max_attempts = 3
+        attempt = 0
+        
+        while attempt < max_attempts:
             try:
-                response = self.generate_command(obs_input_prompt)
-                exec_action, prompt_addition = self.process_command(
-                    response, obs_input_prompt, current_avail_actions)
+                attempt += 1
+                fc_logger.info(f'Attempt {attempt} to generate command')
+                
+                # Get response from LLM
+                response = self.generate_command(enhanced_prompt)
+                if not response:
+                    fc_logger.error('Empty response from generate_command')
+                    continue
+                    
+                fc_logger.info(f'Model response: {response}')
+                
+                # Process the command to get an action
+                exec_action = self.process_command(response, obs_input_prompt, current_avail_actions)
                 
                 if exec_action is not None:
+                    fc_logger.info(f'Chosen action: {exec_action}')
+                    
+                    # Add the chosen action to the dialogue history
+                    action_feedback = f"I'll choose the action: {exec_action}"
+                    self.dialogue.append({"role": "assistant", "content": action_feedback})
+                    
                     return exec_action
+                    
+                fc_logger.info('Failed to extract action, retrying...')
                 
-                if prompt_addition:
-                    obs_input_prompt += prompt_addition
+                # Add feedback about retry to the dialogue
+                retry_prompt = f"I couldn't understand your response. Please choose one of these valid actions: {current_avail_actions}"
+                self.dialogue.append({"role": "user", "content": retry_prompt})
+                
             except Exception as e:
                 fc_logger.error(f"Error in choose_action: {str(e)}")
-                print(f"Error in choose_action: {str(e)}")
-                # Fallback to a random action if an error occurs
-                if current_avail_actions:
-                    return random.choice(current_avail_actions)
-                else:
-                    return "no_action"
-
+                
+        # If all attempts fail, fallback to a random action
+        if current_avail_actions:
+            fallback_action = random.choice(current_avail_actions)
+            fc_logger.info(f'Fallback to random action: {fallback_action}')
+            return fallback_action
+            
+        return None
+        
+    def get_answer_from_index(self, query):
+        """Simplified version for Ollama without Pinecone"""
+        return f"Information about '{query}' is not available in this mode."
+        
     def restrict_dialogue(self):
         """
         Restrict the dialogue history to prevent it from growing too large.
-        We'll keep only the last 10 messages to avoid context length issues.
+        We'll keep only the most recent messages to avoid context length issues.
         """
-        # Simple implementation for Ollama - keep last 10 messages
-        max_messages = 10
+        # Keep system messages and last 12 exchanges
+        max_messages = 25
+        
         if len(self.dialogue) > max_messages:
-            # Keep the system prompt if it exists and the last messages
+            # Keep the system messages
             system_messages = [msg for msg in self.dialogue if msg['role'] == 'system']
-            recent_messages = self.dialogue[-max_messages:]
             
-            # Reconstruct dialogue with system messages first, then recent messages
-            self.dialogue = system_messages + [msg for msg in recent_messages if msg['role'] != 'system']
+            # Keep the first two messages (instruction and task prompts)
+            initial_messages = self.dialogue[:2] if len(self.dialogue) >= 2 else []
+            
+            # Keep the most recent messages
+            recent_messages = self.dialogue[-(max_messages - len(system_messages) - len(initial_messages)):]
+            
+            # Reconstruct dialogue
+            self.dialogue = system_messages + initial_messages + [
+                msg for msg in recent_messages if msg['role'] != 'system'
+            ]
+            
+            fc_logger.debug(f"Dialogue restricted to {len(self.dialogue)} messages")

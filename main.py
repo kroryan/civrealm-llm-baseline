@@ -29,6 +29,54 @@ from civrealm.envs.freeciv_wrapper.llm_wrapper import LLMWrapper
 from agents.utils import print_step, print_action, print_current
 from agents import utils
 from agents.rule_based_agent import RuleBasedAgent
+from agents.civ_autogpt.GPTAgent import GPTAgent
+import logging
+import sys
+import io
+
+# Fix Unicode encoding issues system-wide
+
+# Force stdout and stderr to use utf-8 encoding
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
+# Monkey patch the logging.StreamHandler emit method to handle Unicode characters
+original_emit = logging.StreamHandler.emit
+def patched_emit(self, record):
+    try:
+        original_emit(self, record)
+    except UnicodeEncodeError:
+        # Fallback for Unicode errors
+        msg = self.format(record)
+        msg = msg.encode('utf-8', errors='replace').decode('utf-8')
+        stream = self.stream
+        stream.write(msg + self.terminator)
+        self.flush()
+
+logging.StreamHandler.emit = patched_emit
+
+# Configure logging to handle Unicode characters
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler('app.log', encoding='utf-8')
+    ]
+)
+
+# Ensure the StreamHandler uses utf-8 encoding
+for handler in logging.getLogger().handlers:
+    if isinstance(handler, logging.StreamHandler):
+        handler.setStream(sys.stdout)
+        handler.stream.reconfigure(encoding='utf-8')
+
+# Also set the logging configuration for the freeciv logger specifically
+fc_logger.setLevel(logging.DEBUG)
+for handler in fc_logger.handlers:
+    if isinstance(handler, logging.StreamHandler):
+        handler.setStream(sys.stdout)
+        handler.stream.reconfigure(encoding='utf-8')
 
 # FIXME: This is a hack to suppress the warning about the gymnasium spaces. Currently Gymnasium does not support hierarchical actions.
 warnings.filterwarnings('ignore',
@@ -41,7 +89,8 @@ def main():
     Starts a single-player Freeciv game against rule-based AI.
     """
     env = gymnasium.make('civrealm/FreecivBase-v0')
-    agent = RuleBasedAgent()
+    env = LLMWrapper(env)
+    agent = GPTAgent(model='ollama')
 
     observations, info = env.reset()
     done = False
