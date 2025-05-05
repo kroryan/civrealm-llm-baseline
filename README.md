@@ -6,27 +6,32 @@ BaseLang and Mastaba are two LLM-based agents for the reinforcement learning env
 The list `requirements.txt` in the repository.
 
 ## USAGE:
-1. Install civrealm properly with correct freeciv-web. (See [CivRealm](https://www.github.com/bigai-ai/civrealm))
-
-2. Prepare the LLM's to use (GPT api key or local LLM URL)
-
-3. Prepare a `PINECONE` API Key.
-
-4. Set env varibles.
-
+1. Pull the Freeciv-web Docker image:
 ```
-# Use AZURE_OPENAI_API_TYPE="azure" to use Azure LLM, otherwise use "openai"
-export AZURE_OPENAI_API_TYPE="<your_open_api_type>"
-export AZURE_OPENAI_API_VERSION='<your_openai_api_version>'
-export AZURE_OPENAI_API_BASE='<your_openai_api_base>'
-export AZURE_OPENAI_API_KEY='<your_openai_api_key>'
-export LOCAL_LLM_URL='<if_need_local_llm_inference>'
-export MY_PINECONE_API_KEY='<your_pinecone_api_key>'
-export MY_PINECONE_ENV='<your_pinecone_env_name>'
+docker pull krory90/freeciv-web:lastest
+docker tag krory90/freeciv-web:lastest krory90/freeciv-web:lastest
 ```
 
-5. Execute the code.
-`python main.py`
+2. Clone the CivRealm repository and start the Freeciv-web server:
+```
+git clone https://github.com/kroryan/civrealm
+cd civrealm/src/civrealm/configs
+docker compose up -d freeciv-web
+```
+
+3. Clone this repository:
+```
+git clone https://github.com/kroryan/civrealm-llm-baseline
+```
+
+4. Set up your environment variables (see below for details).
+
+5. Run the application:
+```
+python main.py
+```
+
+# Environment Variables Setup
 
 ## Recent Updates
 
