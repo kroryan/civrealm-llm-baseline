@@ -1,0 +1,279 @@
+# BaseLang & Mastaba: Technical Documentation
+This document provides a comprehensive technical analysis of the FreeCiv LLM Agent system architecture and implementation details.
+
+## 1. Architecture Overview
+
+The FreeCiv LLM agent system is a modular architecture designed to enable interaction between Large Language Models (LLMs) and the FreeCiv game environment. The system consists of several key components:
+
+- **Agent Classes**: Different implementations of agent behavior
+- **Workers**: Specialized components for handling specific LLM backends
+- **Prompt Handlers**: Components for managing and formatting prompts
+- **Utilities**: Helper functions for processing text, managing tokens, etc.
+
+The system is designed to be flexible, allowing different LLM backends (OpenAI, Azure, Ollama) to be used interchangeably.
+
+## 2. Core Components
+
+### 2.1 Agent Classes
+
+The system implements several types of agents:
+- `BaselineLanguageAgent`: Basic implementation of a language-driven agent
+- `BaseLangAgent`: Implementation focusing on Ollama
+- `AutoGPTAgent`: Implementation for OpenAI models
+- `MastabaAgent`: Advanced agent with specialized decision-making capabilities
+
+Each agent inherits from `LanguageAgent`, which provides the base functionality for interacting with the FreeCiv environment.
+
+### 2.2 Worker Classes
+
+Workers handle the direct interaction with LLM backends:
+- `OllamaWorker`: Handles interaction with local Ollama models
+- `AzureGPTWorker`: Handles interaction with Azure-hosted models
+- `MastabaWorker`: Specialized worker for advanced decision-making
+
+The worker architecture follows a command pattern, with each worker registering handlers for different commands that might be issued by the LLM.
+
+### 2.3 The GPTAgent Class
+
+`GPTAgent` is a core component that manages dialogue, handles token limits, and processes commands from the LLM. It implements:
+- Dialogue management
+- Token counting and context window management
+- Command processing
+- LLM querying
+
+## 3. Integration with Ollama
+
+The system integrates with Ollama for local LLM inference through these components:
+
+### 3.1 OllamaWorker
+
+`OllamaWorker` is responsible for:
+- Initializing connection to the Ollama API
+- Sending formatted prompts to Ollama
+- Processing responses
+- Converting LLM outputs into game actions
+
+### 3.2 Configuration
+
+Ollama is configured through environment variables:
+```
+export OPENAI_API_TYPE="ollama"
+export OLLAMA_MODEL="qwen3:latest"
+export OLLAMA_HOST="http://localhost:11434"
+```
+
+### 3.3 API Interaction
+
+The system interacts with Ollama through HTTP requests to its API:
+- Requests are formatted as JSON
+- Responses are parsed to extract actionable commands
+- Fallback mechanisms exist for handling timeouts and errors
+
+```python
+# Example of API interaction
+response = requests.post(api_url, json=payload, timeout=60)
+if response.status_code == 200:
+    result = response.json()
+    content = result['message']['content']
+    # Process content into game actions
+```
+
+## 4. Interaction Flow
+
+The typical interaction flow follows these steps:
+
+1. The FreeCiv environment provides observations and available actions
+2. The agent processes this information and formats it as a prompt
+3. The worker sends the prompt to the LLM (Ollama, Azure, etc.)
+4. The LLM generates a response
+5. The worker parses the response to extract commands
+6. Commands are converted to game actions
+7. Actions are executed in the game environment
+
+### 4.1 Command Processing
+
+LLM responses are processed to extract commands:
+- JSON parsing for structured responses
+- Regular expression patterns for unstructured responses
+- Fallback mechanisms when parsing fails
+
+### 4.2 Action Selection
+
+The system includes mechanisms for selecting the most appropriate action:
+- Direct matching against available actions
+- Fallback strategies for invalid actions
+- Random selection when necessary
+
+## 5. Context Management
+
+The system manages dialogue context to stay within token limits:
+- For OpenAI models: Token counting with model-specific limits
+- For Ollama: Simpler approach based on message count
+- Essential prompts are preserved while trimming older messages
+
+## 6. Error Handling and Resilience
+
+The system implements several resilience mechanisms:
+- Retries for failed LLM calls
+- Timeouts to prevent hanging
+- Fallback actions when parsing fails
+- Detection of repetitive actions
+
+## 7. Vector Search Integration
+
+For certain configurations, the system integrates with Pinecone for vector search:
+- Embeddings are generated using OpenAI's embedding models
+- Similar documents are retrieved for answering queries
+- This feature is disabled when using Ollama
+
+## 8. Future Development Areas
+
+Potential areas for improvement include:
+- Better integration with local embedding models for Ollama
+- Enhanced action selection mechanisms
+- More sophisticated dialogue management
+- Improved error handling and resilience
+
+---
+
+# Documentación Técnica de BaseLang y Mastaba
+
+## 1. Visión General de la Arquitectura
+
+El sistema de agente LLM para FreeCiv es una arquitectura modular diseñada para permitir la interacción entre Modelos de Lenguaje Grande (LLMs) y el entorno de juego FreeCiv. El sistema consta de varios componentes clave:
+
+- **Clases de Agentes**: Diferentes implementaciones de comportamiento de agente
+- **Workers**: Componentes especializados para manejar diferentes backends de LLM
+- **Manejadores de Prompts**: Componentes para gestionar y formatear prompts
+- **Utilidades**: Funciones auxiliares para procesar texto, gestionar tokens, etc.
+
+El sistema está diseñado para ser flexible, permitiendo que diferentes backends de LLM (OpenAI, Azure, Ollama) se utilicen de manera intercambiable.
+
+## 2. Componentes Principales
+
+### 2.1 Clases de Agentes
+
+El sistema implementa varios tipos de agentes:
+- `BaselineLanguageAgent`: Implementación básica de un agente basado en lenguaje
+- `BaseLangAgent`: Implementación centrada en Ollama
+- `AutoGPTAgent`: Implementación para modelos de OpenAI
+- `MastabaAgent`: Agente avanzado con capacidades especializadas de toma de decisiones
+
+Cada agente hereda de `LanguageAgent`, que proporciona la funcionalidad base para interactuar con el entorno FreeCiv.
+
+### 2.2 Clases Worker
+
+Los workers manejan la interacción directa con los backends de LLM:
+- `OllamaWorker`: Maneja la interacción con modelos locales de Ollama
+- `AzureGPTWorker`: Maneja la interacción con modelos alojados en Azure
+- `MastabaWorker`: Worker especializado para toma de decisiones avanzada
+
+La arquitectura de worker sigue un patrón de comando, con cada worker registrando manejadores para diferentes comandos que podrían ser emitidos por el LLM.
+
+### 2.3 La Clase GPTAgent
+
+`GPTAgent` es un componente central que gestiona el diálogo, maneja límites de tokens y procesa comandos del LLM. Implementa:
+- Gestión de diálogo
+- Conteo de tokens y gestión de ventana de contexto
+- Procesamiento de comandos
+- Consulta al LLM
+
+## 3. Integración con Ollama
+
+El sistema se integra con Ollama para inferencia local de LLM a través de estos componentes:
+
+### 3.1 OllamaWorker
+
+`OllamaWorker` es responsable de:
+- Inicializar la conexión a la API de Ollama
+- Enviar prompts formateados a Ollama
+- Procesar respuestas
+- Convertir salidas del LLM en acciones de juego
+
+### 3.2 Configuración
+
+Ollama se configura a través de variables de entorno:
+```
+export OPENAI_API_TYPE="ollama"
+export OLLAMA_MODEL="qwen3:latest"
+export OLLAMA_HOST="http://localhost:11434"
+```
+
+### 3.3 Interacción con la API
+
+El sistema interactúa con Ollama a través de peticiones HTTP a su API:
+- Las peticiones se formatean como JSON
+- Las respuestas se analizan para extraer comandos accionables
+- Existen mecanismos de respaldo para manejar tiempos de espera y errores
+
+```python
+# Ejemplo de interacción con la API
+response = requests.post(api_url, json=payload, timeout=60)
+if response.status_code == 200:
+    result = response.json()
+    content = result['message']['content']
+    # Procesar contenido en acciones de juego
+```
+
+## 4. Flujo de Interacción
+
+El flujo típico de interacción sigue estos pasos:
+
+1. El entorno FreeCiv proporciona observaciones y acciones disponibles
+2. El agente procesa esta información y la formatea como un prompt
+3. El worker envía el prompt al LLM (Ollama, Azure, etc.)
+4. El LLM genera una respuesta
+5. El worker analiza la respuesta para extraer comandos
+6. Los comandos se convierten en acciones de juego
+7. Las acciones se ejecutan en el entorno de juego
+
+### 4.1 Procesamiento de Comandos
+
+Las respuestas del LLM se procesan para extraer comandos:
+- Análisis JSON para respuestas estructuradas
+- Patrones de expresiones regulares para respuestas no estructuradas
+- Mecanismos de respaldo cuando el análisis falla
+
+### 4.2 Selección de Acciones
+
+El sistema incluye mecanismos para seleccionar la acción más apropiada:
+- Coincidencia directa contra acciones disponibles
+- Estrategias de respaldo para acciones inválidas
+- Selección aleatoria cuando es necesario
+
+## 5. Gestión de Contexto
+
+El sistema gestiona el contexto de diálogo para mantenerse dentro de los límites de tokens:
+- Para modelos OpenAI: Conteo de tokens con límites específicos por modelo
+- Para Ollama: Enfoque más simple basado en conteo de mensajes
+- Se preservan prompts esenciales mientras se recortan mensajes más antiguos
+
+## 6. Manejo de Errores y Resiliencia
+
+El sistema implementa varios mecanismos de resiliencia:
+- Reintentos para llamadas fallidas al LLM
+- Tiempos de espera para evitar bloqueos
+- Acciones de respaldo cuando el análisis falla
+- Detección de acciones repetitivas
+
+## 7. Integración con Búsqueda Vectorial
+
+Para ciertas configuraciones, el sistema se integra con Pinecone para búsqueda vectorial:
+- Los embeddings se generan usando los modelos de embedding de OpenAI
+- Se recuperan documentos similares para responder consultas
+- Esta característica está desactivada cuando se usa Ollama
+
+## 8. Áreas de Desarrollo Futuro
+
+Las áreas potenciales de mejora incluyen:
+- Mejor integración con modelos de embedding locales para Ollama
+- Mecanismos mejorados de selección de acciones
+- Gestión de diálogo más sofisticada
+- Manejo de errores y resiliencia mejorados
+
+### Ejemplo de logs del sistema
+```
+INFO: Processing command response: {"command": {"name": "finalDecision", "input": {"action": "build city"}}}
+DEBUG: Parsed JSON: {'command': {'name': 'finalDecision', 'input': {'action': 'build city'}}}
+DEBUG: Found action in JSON: build city
+DEBUG: Matched action: build city

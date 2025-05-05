@@ -1,0 +1,397 @@
+# Turn Management System in LLM Agents for FreeCiv
+
+This document explains how turn management works in the CivRealm LLM agents, detailing the process that determines when and how the game advances from one turn to the next.
+
+## Turn Structure Overview
+
+In FreeCiv (and CivRealm), the game progresses through a series of turns where each player controls multiple units and cities:
+
+1. **Player receives game state information**
+2. **Player decides actions for each unit and city**
+3. **Once all units/cities have acted (or been skipped), the turn ends**
+4. **Game processes all actions and updates the world state**
+5. **Cycle repeats with the next turn**
+
+## How the LLM Agent Handles Turns
+
+### Automatic Turn Detection
+
+The LLM agent doesn't explicitly decide to "end turn" - this process happens automatically when all controllable entities have acted:
+
+```python
+# In agents/language_agent.py or agents/mastaba_agent.py
+def act(self, observations, info):
+    # Process each unit and city
+    available_actions = info['available_actions']
+    for ctrl_type in available_actions.keys():
+        if ctrl_type in info['llm_info']:
+            for actor_id, actor_dict in info['llm_info'][ctrl_type].items():
+                # Get action for this specific unit/city
+                # Once all have acted, the turn automatically advances
+```
+
+### Actor Tracking System
+
+The system keeps track of which actors (units and cities) have already performed actions:
+
+```python
+# Simplified representation of the actor tracking system
+self.acted_units = set()  # Tracks units that have already acted
+
+def get_next_actor(self, actors):
+    for actor_id in actors:
+        if actor_id not in self.acted_units:
+            return actor_id
+    # If all actors have acted, return None, triggering turn end
+    return None
+```
+
+### Game Controller Integration
+
+The underlying game controller (`civ_controller.py`) determines when all units have acted and advances the game:
+
+```python
+# In civ_controller.py
+def process_turn(self):
+    if all_units_have_acted():
+        advance_to_next_turn()
+    else:
+        wait_for_remaining_actions()
+```
+
+### Turn Advancement Signals
+
+The system watches for signals from the FreeCiv server indicating turn advancement:
+
+```
+DEBUG [civ_controller.py:410] Player 0 get_info. Turn: 2
+INFO [civ_connection.py:67] ('Received packets id: ', [0, 25, 31, 46, 138, 256, 514, 1])
+```
+
+## LLM Decision Making for Turn Management
+
+### Action Selection Algorithm
+
+For each actionable entity (unit or city), the LLM performs these steps:
+
+1. **Receives current state observation** for that entity
+2. **Analyzes available actions**
+3. **Selects an action** based on strategic consideration
+4. **Executes the action**
+5. Entity is marked as "acted" for the current turn
+
+### Action Types Affecting Turn Progression
+
+Several action types affect how turns progress:
+
+- **Standard Actions**: Moving units, building improvements, etc.
+- **Keep Activity**: Indicates the unit should continue its current activity
+- **Fallback Actions**: Selected when the LLM fails to decide or chooses an invalid action
+
+### Dead-end Detection and Prevention
+
+The system includes mechanisms to detect when an agent is stuck in a loop:
+
+```python
+# In agents/civ_autogpt/GPTAgent.py
+if self.check_if_the_taken_actions_list_needed_update('goto', 15, 4) or \
+   self.check_if_the_taken_actions_list_needed_update('keep_activity', 15, 0):
+    # Code to break out of action loops
+    variation_prompt = obs_input_prompt + \
+        "\nIMPORTANT: You seem to be repeating the same action multiple times. " + \
+        "Consider exploring different strategies and actions to make progress in the game."
+```
+
+### Strategic Analysis Impact on Turn Pacing
+
+The strategic analysis system evaluates decision quality and influences turn progression:
+
+```python
+# In agents/civ_autogpt/utils/strategic_analysis.py
+def analizar_calidad_decision(accion, contexto, acciones_disponibles):
+    # Decision quality evaluation logic
+    # High-quality decisions lead to more effective turn utilization
+```
+
+## Technical Implementation Details
+
+### Waiting Mechanism
+
+The system implements a waiting mechanism for pending actions:
+
+```
+INFO [civ_controller.py:507] ('Waiting for: ', [(31, 3151)])
+```
+
+This shows the system waiting for a specific packet (31) associated with a particular tile (3151).
+
+### Packet Processing
+
+The controller processes packets from the FreeCiv server to determine game state:
+
+```
+DEBUG [base_controller.py:74] Receiving packet: {'pid': 25, 'message': '<font color="#FFFFFF"><a href="#" onclick="show_city_dialog_by_id(121);">Durocortum</a> is building Settlers.</font>', 'tile': 3151, 'event': 16, 'turn': 2, 'phase': 0, 'conn_id': -1}
+```
+
+### Action Execution Feedback
+
+When an action is executed, the system provides feedback that helps track turn progression:
+
+```
+exec_action: produce Settlers
+INFO [GPTAgent.py:649] Chosen action for city 121: produce Settlers
+INFO [base_action.py:48] trigger_action. {'pid': 35, 'city_id': 121, 'production_kind': 6, 'production_value': 0}, wait_for_pid. (31, 3151)
+```
+
+## Advanced Turn Management
+
+### Priority-Based Actor Selection
+
+The system prioritizes certain actors over others based on strategic importance:
+
+1. **Units that can found cities** (Settlers) are often prioritized
+2. **Military units** in dangerous situations receive high priority
+3. **Workers** with partially completed improvements are given preference
+
+### Multi-Turn Action Planning
+
+The LLM agent can plan actions that span multiple turns:
+
+```
+# Example of multi-turn planning in LLM response
+{"command": {"name": "finalDecision", "input": {"action": "move East"}}}  # Turn 1
+# Later turns would continue the journey eastward based on strategic goals
+```
+
+## Common Turn Management Patterns
+
+### Early Game Turn Pattern
+
+In the early game, turns typically follow this pattern:
+1. **Move Settlers** to optimal city locations
+2. **Found cities** in strategic positions
+3. **Begin producing** new Settlers or Warriors
+4. **Explore** the surrounding territory
+
+### Mid-Game Turn Pattern
+
+As the game progresses, the turn pattern becomes more complex:
+1. **Manage multiple cities'** production queues
+2. **Direct Workers** to improve tiles
+3. **Position military units** defensively or offensively
+4. **Research new technologies**
+5. **Conduct diplomacy** with other civilizations
+
+### Turn Error Recovery
+
+If errors occur during turn processing, the system can recover:
+
+```python
+# Error recovery mechanism
+try:
+    # Process normal turn actions
+except Exception as e:
+    fc_logger.error(f"Error processing turn: {str(e)}")
+    # Use fallback actions to ensure turn progression
+    return select_fallback_action(dialogue)
+```
+
+---
+
+# Sistema de Gestión de Turnos en Agentes LLM para FreeCiv
+
+Este documento explica cómo funciona la gestión de turnos en los agentes LLM de CivRealm, detallando el proceso que determina cuándo y cómo el juego avanza de un turno al siguiente.
+
+## Estructura General de los Turnos
+
+En FreeCiv (y CivRealm), el juego progresa a través de una serie de turnos donde cada jugador controla múltiples unidades y ciudades:
+
+1. **El jugador recibe información** sobre el estado del juego
+2. **El jugador decide acciones** para cada unidad y ciudad
+3. **Una vez que todas las unidades/ciudades han actuado** (o han sido omitidas), el turno termina
+4. **El juego procesa todas las acciones** y actualiza el estado del mundo
+5. **El ciclo se repite** con el siguiente turno
+
+## Cómo el Agente LLM Maneja los Turnos
+
+### Detección Automática de Turnos
+
+El agente LLM no decide explícitamente "terminar turno" - este proceso ocurre automáticamente cuando todas las entidades controlables han actuado:
+
+```python
+# En agents/language_agent.py o agents/mastaba_agent.py
+def act(self, observations, info):
+    # Procesar cada unidad y ciudad
+    available_actions = info['available_actions']
+    for ctrl_type in available_actions.keys():
+        if ctrl_type in info['llm_info']:
+            for actor_id, actor_dict in info['llm_info'][ctrl_type].items():
+                # Obtener acción para esta unidad/ciudad específica
+                # Una vez que todas han actuado, el turno avanza automáticamente
+```
+
+### Sistema de Seguimiento de Actores
+
+El sistema mantiene un registro de qué actores (unidades y ciudades) ya han realizado acciones:
+
+```python
+# Representación simplificada del sistema de seguimiento de actores
+self.acted_units = set()  # Rastrea unidades que ya han actuado
+
+def get_next_actor(self, actors):
+    for actor_id in actors:
+        if actor_id not in self.acted_units:
+            return actor_id
+    # Si todos los actores han actuado, devuelve None, desencadenando el fin del turno
+    return None
+```
+
+### Integración con el Controlador del Juego
+
+El controlador subyacente del juego (`civ_controller.py`) determina cuándo todas las unidades han actuado y avanza el juego:
+
+```python
+# En civ_controller.py
+def process_turn(self):
+    if all_units_have_acted():
+        advance_to_next_turn()
+    else:
+        wait_for_remaining_actions()
+```
+
+### Señales de Avance de Turno
+
+El sistema observa señales del servidor de FreeCiv que indican el avance del turno:
+
+```
+DEBUG [civ_controller.py:410] Player 0 get_info. Turn: 2
+INFO [civ_connection.py:67] ('Received packets id: ', [0, 25, 31, 46, 138, 256, 514, 1])
+```
+
+## Toma de Decisiones del LLM para la Gestión de Turnos
+
+### Algoritmo de Selección de Acciones
+
+Para cada entidad accionable (unidad o ciudad), el LLM realiza estos pasos:
+
+1. **Recibe la observación** del estado actual para esa entidad
+2. **Analiza las acciones disponibles**
+3. **Selecciona una acción** basada en consideraciones estratégicas
+4. **Ejecuta la acción**
+5. La entidad se marca como "actuada" para el turno actual
+
+### Tipos de Acciones que Afectan la Progresión de Turnos
+
+Varios tipos de acciones afectan cómo progresan los turnos:
+
+- **Acciones Estándar**: Mover unidades, construir mejoras, etc.
+- **Mantener Actividad** (Keep Activity): Indica que la unidad debe continuar su actividad actual
+- **Acciones de Respaldo** (Fallback): Seleccionadas cuando el LLM no puede decidir o elige una acción inválida
+
+### Detección y Prevención de Callejones sin Salida
+
+El sistema incluye mecanismos para detectar cuando un agente está atrapado en un bucle:
+
+```python
+# En agents/civ_autogpt/GPTAgent.py
+if self.check_if_the_taken_actions_list_needed_update('goto', 15, 4) or \
+   self.check_if_the_taken_actions_list_needed_update('keep_activity', 15, 0):
+    # Código para salir de bucles de acción
+    variation_prompt = obs_input_prompt + \
+        "\nIMPORTANT: You seem to be repeating the same action multiple times. " + \
+        "Consider exploring different strategies and actions to make progress in the game."
+```
+
+### Impacto del Análisis Estratégico en el Ritmo de los Turnos
+
+El sistema de análisis estratégico evalúa la calidad de las decisiones e influye en la progresión del turno:
+
+```python
+# En agents/civ_autogpt/utils/strategic_analysis.py
+def analizar_calidad_decision(accion, contexto, acciones_disponibles):
+    # Lógica de evaluación de calidad de decisiones
+    # Decisiones de alta calidad llevan a una utilización más efectiva del turno
+```
+
+## Detalles Técnicos de Implementación
+
+### Mecanismo de Espera
+
+El sistema implementa un mecanismo de espera para acciones pendientes:
+
+```
+INFO [civ_controller.py:507] ('Waiting for: ', [(31, 3151)])
+```
+
+Esto muestra el sistema esperando un paquete específico (31) asociado con una casilla particular (3151).
+
+### Procesamiento de Paquetes
+
+El controlador procesa paquetes del servidor de FreeCiv para determinar el estado del juego:
+
+```
+DEBUG [base_controller.py:74] Receiving packet: {'pid': 25, 'message': '<font color="#FFFFFF"><a href="#" onclick="show_city_dialog_by_id(121);">Durocortum</a> is building Settlers.</font>', 'tile': 3151, 'event': 16, 'turn': 2, 'phase': 0, 'conn_id': -1}
+```
+
+### Retroalimentación de Ejecución de Acciones
+
+Cuando se ejecuta una acción, el sistema proporciona retroalimentación que ayuda a rastrear la progresión del turno:
+
+```
+exec_action: produce Settlers
+INFO [GPTAgent.py:649] Chosen action for city 121: produce Settlers
+INFO [base_action.py:48] trigger_action. {'pid': 35, 'city_id': 121, 'production_kind': 6, 'production_value': 0}, wait_for_pid. (31, 3151)
+```
+
+## Gestión Avanzada de Turnos
+
+### Selección de Actores Basada en Prioridades
+
+El sistema prioriza ciertos actores sobre otros basándose en la importancia estratégica:
+
+1. **Las unidades que pueden fundar ciudades** (Settlers) suelen tener prioridad
+2. **Las unidades militares** en situaciones peligrosas reciben alta prioridad
+3. **Los trabajadores** con mejoras parcialmente completadas tienen preferencia
+
+### Planificación de Acciones Multi-Turno
+
+El agente LLM puede planificar acciones que abarcan múltiples turnos:
+
+```
+# Ejemplo de planificación multi-turno en respuesta LLM
+{"command": {"name": "finalDecision", "input": {"action": "move East"}}}  # Turno 1
+# Los turnos posteriores continuarían el viaje hacia el este basado en objetivos estratégicos
+```
+
+## Patrones Comunes de Gestión de Turnos
+
+### Patrón de Turnos de Inicio de Juego
+
+En el inicio del juego, los turnos típicamente siguen este patrón:
+1. **Mover Settlers** a ubicaciones óptimas para ciudades
+2. **Fundar ciudades** en posiciones estratégicas
+3. **Comenzar a producir** nuevos Settlers o Warriors
+4. **Explorar** el territorio circundante
+
+### Patrón de Turnos de Mitad de Juego
+
+A medida que el juego avanza, el patrón de turnos se vuelve más complejo:
+1. **Gestionar las colas de producción** de múltiples ciudades
+2. **Dirigir a los Workers** para mejorar casillas
+3. **Posicionar unidades militares** defensiva u ofensivamente
+4. **Investigar nuevas tecnologías**
+5. **Realizar diplomacia** con otras civilizaciones
+
+### Recuperación de Errores de Turno
+
+Si ocurren errores durante el procesamiento del turno, el sistema puede recuperarse:
+
+```python
+# Mecanismo de recuperación de errores
+try:
+    # Procesar acciones normales del turno
+except Exception as e:
+    fc_logger.error(f"Error procesando turno: {str(e)}")
+    # Usar acciones de respaldo para asegurar la progresión del turno
+    return select_fallback_action(dialogue)
+```

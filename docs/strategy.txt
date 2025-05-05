@@ -1,0 +1,521 @@
+# Strategic Decision-Making System in LLM Agents for FreeCiv
+
+This document explains how the BaseLang and Mastaba agents make strategic decisions in FreeCiv, including the internal mechanisms for game state analysis, decision evaluation, and action selection.
+
+## Game State Understanding
+
+The LLM agents use sophisticated mechanisms to understand and interact with the FreeCiv game environment:
+
+- **Observation Processing**: Transforms raw game data into natural language descriptions
+- **Contextual Analysis**: Identifies resources, terrain types, and strategic opportunities
+- **Strategic Evaluation**: Rates decisions based on game context and strategic value
+
+### Observation Extraction System
+
+```python
+# How observations are processed in the system
+def act(self, observations, info):
+    available_actions = info['available_actions']
+    for ctrl_type in available_actions.keys():
+        if ctrl_type in info['llm_info']:
+            for actor_id, actor_dict in info['llm_info'][ctrl_type].items():
+                actor_name = actor_dict['name']
+                current_obs = actor_dict['observations']['minimap']
+                # Process observations for LLM context
+```
+
+The observations include:
+- **Minimap Data**: Visual map representation around the unit/city
+- **Unit/City Information**: Details about the controlled entity
+- **Resource Information**: Available resources in the visible area
+- **Available Actions**: Valid actions for the current unit/city
+
+## Strategic Analysis System
+
+The strategic analysis system evaluates the game state and provides recommendations:
+
+### 1. Situation Analysis
+
+The system analyzes the current game state to extract key information:
+
+```python
+# Strategic analysis of the game situation
+def analizar_situacion_juego(contenido_mensaje, acciones_disponibles):
+    # Initialize analysis variables
+    recursos_cercanos = []
+    terrenos = []
+    unidades_cercanas = []
+    ciudades_cercanas = 0
+    casillas_inexploradas = 0
+    
+    # Extract strategic information
+    # ...
+    
+    # Generate strategic insights
+    analisis = ""
+    if recursos_cercanos:
+        analisis += f"Nearby resources: {', '.join(recursos_cercanos)}. "
+        analisis += "Consider expanding or improving these tiles to leverage these resources."
+    
+    return analisis
+```
+
+### 2. Decision Quality Evaluation
+
+Each decision is scored on a scale of 0-10 based on strategic factors:
+
+```python
+def analizar_calidad_decision(accion, contexto, acciones_disponibles):
+    # Early game detection
+    es_inicio_juego = "Turn: 1" in contexto or "Turn: 2" in contexto or "Turn: 3" in contexto
+    
+    # Action type analysis
+    es_accion_ciudad = accion.startswith("produce")
+    es_accion_construccion = accion.startswith("build") or accion == "irrigation" or accion == "mine"
+    es_accion_movimiento = accion.startswith("move") or accion == "auto_explore"
+    
+    # Example scoring for city production decisions
+    if es_accion_ciudad:
+        if es_inicio_juego and accion == "produce Settlers":
+            puntuacion = 9
+            razonamiento = "Excellent decision to produce Settlers early to expand your empire."
+        # More decision evaluation logic...
+    
+    return puntuacion, razonamiento
+```
+
+### 3. Strategic Advice Generation
+
+The system provides tailored advice based on unit type and context:
+
+```python
+def mejorar_prompt_estrategico(processed_dialogue, last_action_msg_idx, available_actions):
+    # Determine unit/city type
+    es_ciudad = any('produce' in action for action in available_actions)
+    es_settler = any('build city' in action for action in available_actions)
+    es_worker = any('irrigation' in action or 'mine' in action for action in available_actions)
+    
+    # Generate specific strategic advice
+    consejo_estrategico = ""
+    if es_ciudad:
+        if 'produce Settlers' in available_actions:
+            consejo_estrategico = (
+                "Prioritize Settlers production early game to expand. "
+                "This is the ideal time to found new cities."
+            )
+        # More unit-specific advice...
+    
+    # Add situational analysis
+    analisis = analizar_situacion_juego(msg_content, available_actions)
+    
+    # Insert strategic advice into dialogue
+    reminder_msg = {
+        'role': 'system',
+        'content': (f"IMPORTANT REMINDER: You must only suggest actions from this list: {available_actions}. " 
+                  f"Strategic advice: {consejo_estrategico} {analisis}")
+    }
+    
+    return processed_dialogue
+```
+
+## Action Selection Process
+
+The LLM processes the game context and selects actions through this flow:
+
+1. **Context Interpretation**: Understand the game state description
+2. **Strategic Analysis**: Consider implications of different actions
+3. **Decision Formulation**: Select optimal action based on available options
+4. **Response Generation**: Produce structured command response
+
+### Response Format
+
+The LLM generates responses in a structured JSON format:
+
+```json
+{
+  "command": {
+    "name": "finalDecision",
+    "input": {
+      "action": "move East"
+    }
+  }
+}
+```
+
+### Action Processing
+
+The system processes the LLM's response to extract and validate actions:
+
+```python
+def process_command(self, command_json, obs_input_prompt, current_unit_name, current_avail_actions):
+    try:
+        command_input = command_json['command']['input']
+        command_name = command_json['command']['name']
+    except Exception as e:
+        # Handle malformed response
+        # ...
+        
+    if (command_name == 'finalDecision') and command_input['action']:
+        exec_action = command_input['action']
+        
+        # Validate action
+        if exec_action not in current_avail_actions:
+            # Handle invalid action
+            # ...
+        else:
+            # Process valid action
+            self.taken_actions_list.append(exec_action)
+            
+            # Evaluate decision quality
+            puntuacion, razon = analizar_calidad_decision(exec_action, obs_input_prompt, current_avail_actions)
+            fc_logger.info(f"Decision quality: {puntuacion}/10 - {razon}")
+            
+            # Execute action
+            return exec_action
+```
+
+## Advanced Strategic Features
+
+The system includes several advanced features to improve decision quality:
+
+### Cyclic Action Detection
+
+To prevent action loops and repetitive behaviors:
+
+```python
+if self.check_if_the_taken_actions_list_needed_update('goto', 15, 4) or \
+   self.check_if_the_taken_actions_list_needed_update('keep_activity', 15, 0):
+    # Detect and break cyclic patterns
+    variation_prompt = obs_input_prompt + \
+        "\nIMPORTANT: You seem to be repeating the same action multiple times. " + \
+        "Consider exploring different strategies and actions to make progress in the game."
+```
+
+### Autonomous Strategic Adaptation
+
+The LLM adapts its strategy as the game progresses:
+
+- **Early Game**: Focus on expansion and exploration
+- **Mid Game**: Develop infrastructure and technology
+- **Late Game**: Military development and victory conditions
+
+### Fallback Mechanisms
+
+When the LLM suggests invalid actions or fails to respond:
+
+```python
+def select_fallback_action(dialogue):
+    """Selects a valid action when the primary action selection fails."""
+    # Extract available actions from dialogue
+    available_actions = []
+    for msg in reversed(dialogue):
+        if msg['role'] == 'user' and 'available action list is' in msg['content']:
+            match = re.search(r'available action list is \[(.*?)\]', msg['content'], re.IGNORECASE)
+            if match:
+                actions_text = match.group(1)
+                available_actions = [action.strip(" '\"") for action in actions_text.split(',')]
+                break
+    
+    # Prioritize important actions
+    if "produce Settlers" in available_actions:
+        return "produce Settlers"
+    elif "build city" in available_actions:
+        return "build city"
+    # More action prioritization...
+    else:
+        return available_actions[0]  # Default to first available action
+```
+
+## Strategic Patterns and Behaviors
+
+The LLM agents exhibit several key strategic patterns:
+
+### Resource Recognition
+
+```python
+# Resource recognition for strategic planning
+recursos_buscar = ["Gold", "Iron", "Wheat", "Fish", "Buffalo", "Wine", "Silk", "Whale", "Pheasant"]
+for recurso in recursos_buscar:
+    if recurso in contenido_mensaje:
+        recursos_cercanos.append(recurso)
+```
+
+### Terrain Understanding
+
+```python
+# Terrain analysis for strategic decisions
+terrenos_buscar = ["Plains", "Grassland", "Hills", "Mountains", "Forest", "Desert", "Ocean", "River", "Swamp", "Lake"]
+for terreno in terrenos_buscar:
+    if terreno in contenido_mensaje:
+        terrenos.append(terreno)
+```
+
+### Multi-Unit Coordination
+
+Although each unit is controlled individually, the strategic advice system encourages coherent multi-unit strategies:
+
+- Workers are directed to improve tiles near cities
+- Military units protect vulnerable settlers
+- Explorers uncover strategically valuable map areas
+
+---
+
+# Sistema de Toma de Decisiones Estratégicas en Agentes LLM para FreeCiv
+
+Este documento explica cómo los agentes BaseLang y Mastaba toman decisiones estratégicas en FreeCiv, incluyendo los mecanismos internos para análisis del estado del juego, evaluación de decisiones y selección de acciones.
+
+## Comprensión del Estado del Juego
+
+Los agentes LLM utilizan mecanismos sofisticados para entender e interactuar con el entorno del juego FreeCiv:
+
+- **Procesamiento de Observaciones**: Transforma datos brutos del juego en descripciones de lenguaje natural
+- **Análisis Contextual**: Identifica recursos, tipos de terreno y oportunidades estratégicas
+- **Evaluación Estratégica**: Califica decisiones basadas en el contexto del juego y valor estratégico
+
+### Sistema de Extracción de Observaciones
+
+```python
+# Cómo se procesan las observaciones en el sistema
+def act(self, observations, info):
+    available_actions = info['available_actions']
+    for ctrl_type in available_actions.keys():
+        if ctrl_type in info['llm_info']:
+            for actor_id, actor_dict in info['llm_info'][ctrl_type].items():
+                actor_name = actor_dict['name']
+                current_obs = actor_dict['observations']['minimap']
+                # Procesar observaciones para contexto LLM
+```
+
+Las observaciones incluyen:
+- **Datos del Minimapa**: Representación visual del mapa alrededor de la unidad/ciudad
+- **Información de Unidad/Ciudad**: Detalles sobre la entidad controlada
+- **Información de Recursos**: Recursos disponibles en el área visible
+- **Acciones Disponibles**: Acciones válidas para la unidad/ciudad actual
+
+## Sistema de Análisis Estratégico
+
+El sistema de análisis estratégico evalúa el estado del juego y proporciona recomendaciones:
+
+### 1. Análisis de Situación
+
+El sistema analiza el estado actual del juego para extraer información clave:
+
+```python
+# Análisis estratégico de la situación del juego
+def analizar_situacion_juego(contenido_mensaje, acciones_disponibles):
+    # Inicializar variables de análisis
+    recursos_cercanos = []
+    terrenos = []
+    unidades_cercanas = []
+    ciudades_cercanas = 0
+    casillas_inexploradas = 0
+    
+    # Extraer información estratégica
+    # ...
+    
+    # Generar ideas estratégicas
+    analisis = ""
+    if recursos_cercanos:
+        analisis += f"Recursos cercanos: {', '.join(recursos_cercanos)}. "
+        analisis += "Considera expandirte o mejorar estas casillas para aprovechar estos recursos."
+    
+    return analisis
+```
+
+### 2. Evaluación de Calidad de Decisión
+
+Cada decisión se puntúa en una escala de 0-10 basada en factores estratégicos:
+
+```python
+def analizar_calidad_decision(accion, contexto, acciones_disponibles):
+    # Detección de inicio de juego
+    es_inicio_juego = "Turn: 1" in contexto or "Turn: 2" in contexto or "Turn: 3" in contexto
+    
+    # Análisis de tipo de acción
+    es_accion_ciudad = accion.startswith("produce")
+    es_accion_construccion = accion.startswith("build") or accion == "irrigation" or accion == "mine"
+    es_accion_movimiento = accion.startswith("move") or accion == "auto_explore"
+    
+    # Ejemplo de puntuación para decisiones de producción de ciudad
+    if es_accion_ciudad:
+        if es_inicio_juego and accion == "produce Settlers":
+            puntuacion = 9
+            razonamiento = "Excelente decisión producir Settlers al inicio para expandir tu imperio."
+        # Más lógica de evaluación de decisiones...
+    
+    return puntuacion, razonamiento
+```
+
+### 3. Generación de Consejos Estratégicos
+
+El sistema proporciona consejos adaptados al tipo de unidad y contexto:
+
+```python
+def mejorar_prompt_estrategico(processed_dialogue, last_action_msg_idx, available_actions):
+    # Determinar tipo de unidad/ciudad
+    es_ciudad = any('produce' in action for action in available_actions)
+    es_settler = any('build city' in action for action in available_actions)
+    es_worker = any('irrigation' in action or 'mine' in action for action in available_actions)
+    
+    # Generar consejo estratégico específico
+    consejo_estrategico = ""
+    if es_ciudad:
+        if 'produce Settlers' in available_actions:
+            consejo_estrategico = (
+                "Prioriza la producción de Settlers al inicio del juego para expandirte. "
+                "Este es el momento ideal para fundar nuevas ciudades."
+            )
+        # Más consejos específicos por unidad...
+    
+    # Añadir análisis situacional
+    analisis = analizar_situacion_juego(msg_content, available_actions)
+    
+    # Insertar consejo estratégico en el diálogo
+    reminder_msg = {
+        'role': 'system',
+        'content': (f"IMPORTANT REMINDER: You must only suggest actions from this list: {available_actions}. " 
+                  f"Consejo estratégico: {consejo_estrategico} {analisis}")
+    }
+    
+    return processed_dialogue
+```
+
+## Proceso de Selección de Acciones
+
+El LLM procesa el contexto del juego y selecciona acciones a través de este flujo:
+
+1. **Interpretación de Contexto**: Entender la descripción del estado del juego
+2. **Análisis Estratégico**: Considerar implicaciones de diferentes acciones
+3. **Formulación de Decisión**: Seleccionar acción óptima basada en opciones disponibles
+4. **Generación de Respuesta**: Producir respuesta de comando estructurada
+
+### Formato de Respuesta
+
+El LLM genera respuestas en un formato JSON estructurado:
+
+```json
+{
+  "command": {
+    "name": "finalDecision",
+    "input": {
+      "action": "move East"
+    }
+  }
+}
+```
+
+### Procesamiento de Acciones
+
+El sistema procesa la respuesta del LLM para extraer y validar acciones:
+
+```python
+def process_command(self, command_json, obs_input_prompt, current_unit_name, current_avail_actions):
+    try:
+        command_input = command_json['command']['input']
+        command_name = command_json['command']['name']
+    except Exception as e:
+        # Manejar respuesta mal formada
+        # ...
+        
+    if (command_name == 'finalDecision') and command_input['action']:
+        exec_action = command_input['action']
+        
+        # Validar acción
+        if exec_action not in current_avail_actions:
+            # Manejar acción inválida
+            # ...
+        else:
+            # Procesar acción válida
+            self.taken_actions_list.append(exec_action)
+            
+            # Evaluar calidad de decisión
+            puntuacion, razon = analizar_calidad_decision(exec_action, obs_input_prompt, current_avail_actions)
+            fc_logger.info(f"Calidad de decisión: {puntuacion}/10 - {razon}")
+            
+            # Ejecutar acción
+            return exec_action
+```
+
+## Características Estratégicas Avanzadas
+
+El sistema incluye varias características avanzadas para mejorar la calidad de las decisiones:
+
+### Detección de Acciones Cíclicas
+
+Para prevenir bucles de acción y comportamientos repetitivos:
+
+```python
+if self.check_if_the_taken_actions_list_needed_update('goto', 15, 4) or \
+   self.check_if_the_taken_actions_list_needed_update('keep_activity', 15, 0):
+    # Detectar y romper patrones cíclicos
+    variation_prompt = obs_input_prompt + \
+        "\nIMPORTANT: You seem to be repeating the same action multiple times. " + \
+        "Consider exploring different strategies and actions to make progress in the game."
+```
+
+### Adaptación Estratégica Autónoma
+
+El LLM adapta su estrategia a medida que progresa el juego:
+
+- **Inicio de Juego**: Enfoque en expansión y exploración
+- **Media Partida**: Desarrollo de infraestructura y tecnología
+- **Final de Juego**: Desarrollo militar y condiciones de victoria
+
+### Mecanismos de Respaldo
+
+Cuando el LLM sugiere acciones inválidas o falla en responder:
+
+```python
+def select_fallback_action(dialogue):
+    """Selecciona una acción válida cuando la selección de acción primaria falla."""
+    # Extraer acciones disponibles del diálogo
+    available_actions = []
+    for msg in reversed(dialogue):
+        if msg['role'] == 'user' and 'available action list is' in msg['content']:
+            match = re.search(r'available action list is \[(.*?)\]', msg['content'], re.IGNORECASE)
+            if match:
+                actions_text = match.group(1)
+                available_actions = [action.strip(" '\"") for action in actions_text.split(',')]
+                break
+    
+    # Priorizar acciones importantes
+    if "produce Settlers" in available_actions:
+        return "produce Settlers"
+    elif "build city" in available_actions:
+        return "build city"
+    # Más priorización de acciones...
+    else:
+        return available_actions[0]  # Por defecto, primera acción disponible
+```
+
+## Patrones y Comportamientos Estratégicos
+
+Los agentes LLM exhiben varios patrones estratégicos clave:
+
+### Reconocimiento de Recursos
+
+```python
+# Reconocimiento de recursos para planificación estratégica
+recursos_buscar = ["Gold", "Iron", "Wheat", "Fish", "Buffalo", "Wine", "Silk", "Whale", "Pheasant"]
+for recurso in recursos_buscar:
+    if recurso in contenido_mensaje:
+        recursos_cercanos.append(recurso)
+```
+
+### Comprensión del Terreno
+
+```python
+# Análisis de terreno para decisiones estratégicas
+terrenos_buscar = ["Plains", "Grassland", "Hills", "Mountains", "Forest", "Desert", "Ocean", "River", "Swamp", "Lake"]
+for terreno in terrenos_buscar:
+    if terreno in contenido_mensaje:
+        terrenos.append(terreno)
+```
+
+### Coordinación Multi-Unidad
+
+Aunque cada unidad se controla individualmente, el sistema de consejos estratégicos fomenta estrategias multi-unidad coherentes:
+
+- Los Workers son dirigidos a mejorar casillas cerca de ciudades
+- Las unidades militares protegen a los settlers vulnerables
+- Los exploradores descubren áreas del mapa estratégicamente valiosas
