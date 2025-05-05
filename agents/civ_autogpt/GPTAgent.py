@@ -7,7 +7,7 @@ import requests
 import warnings
 
 from civrealm.freeciv.utils.freeciv_logging import fc_logger
-from .utils import num_tokens_from_messages, send_message_to_llama, send_message_to_vicuna, extract_json, send_message_to_llama, TOKEN_LIMIT_TABLE
+from .utils import num_tokens_from_messages, send_message_to_llama, send_message_to_vicuna, extract_json, send_message_to_llama, send_message_to_ollama, TOKEN_LIMIT_TABLE
 from langchain.chat_models import ChatOpenAI, AzureChatOpenAI
 from langchain.chains import ConversationChain
 from langchain.memory import ConversationSummaryBufferMemory
@@ -300,6 +300,14 @@ class GPTAgent:
                 deployment_id=self.deployment_name,
                 model=self.model,
                 messages=self.dialogue)
+        
+        elif self.model in ['ollama', 'qwen3:latest']:
+            local_config = {
+                'temperature': temperature,
+                'top_p': top_p,
+                'repetition_penalty': 1.1
+            }
+            response = send_message_to_ollama(self.dialogue, local_config)
 
         elif self.model in ['vicuna-33B']:
             local_config = {
@@ -350,6 +358,9 @@ class GPTAgent:
             except:
                 return response["choices"][0]["message"]
             return {'role': 'assistant', 'content': ans}
+            
+        elif self.model in ['ollama', 'qwen3:latest']:
+            return {'role': 'assistant', 'content': extract_json(response)}
 
         elif self.model in ['vicuna-33B', 'Llama2-70B-chat']:
             return {'role': 'assistant', 'content': extract_json(response)}

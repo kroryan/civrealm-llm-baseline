@@ -151,6 +151,10 @@ class BaseWorker(ABC):
         return similar_docs
 
     def get_answer_from_index(self, query):
+        # Manejar el caso cuando no hay índice (cuando usamos Ollama)
+        if self.index is None:
+            return f"Información sobre '{query}' no disponible en modo Ollama"
+            
         similar_docs = self.get_similiar_docs(query)
         while True:
             try:

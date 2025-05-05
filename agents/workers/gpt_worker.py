@@ -34,6 +34,7 @@ from langchain.chains.question_answering import load_qa_chain
 
 from civrealm.freeciv.utils.freeciv_logging import fc_logger
 from agents.prompt_handlers.base_prompt_handler import BasePromptHandler
+from agents.civ_autogpt.utils import send_message_to_ollama
 
 from .base_worker import BaseWorker
 
@@ -46,7 +47,8 @@ class AzureGPTWorker(BaseWorker):
                  model: str = 'gpt-35-turbo-16k',
                  prompt_prefix: str = "civ_prompts",
                  **kwargs):
-        assert os.environ['OPENAI_API_TYPE'] == 'azure'
+        # Eliminar la aserción estricta que requiere OPENAI_API_TYPE='azure'
+        # assert os.environ['OPENAI_API_TYPE'] == 'azure'
         self.prompt_prefix = prompt_prefix
         super().__init__(model, **kwargs)
 
@@ -57,6 +59,16 @@ class AzureGPTWorker(BaseWorker):
         self._load_task_prompt()
 
     def init_llm(self):
+        # Comprobar si estamos usando Ollama
+        if os.environ.get("OPENAI_API_TYPE", "").lower() == "ollama":
+            # Configuración mínima para evitar errores, pero no se usará en realidad
+            # ya que el modo Ollama usará la clase OllamaWorker en su lugar
+            self.deployment_name = os.environ.get('DEPLOYMENT_NAME', 'default')
+            self.memory = ConversationSummaryBufferMemory(max_token_limit=500)
+            self.chain = None
+            return
+            
+        # Configuración normal para Azure
         openai.api_type = os.environ["OPENAI_API_TYPE"]
         openai.api_version = os.environ["OPENAI_API_VERSION"]
         openai.api_base = os.environ["OPENAI_API_BASE"]
@@ -76,6 +88,12 @@ class AzureGPTWorker(BaseWorker):
                                                       max_token_limit=500)
 
     def init_index(self):
+        # Si estamos usando Ollama, podemos omitir la inicialización de Pinecone
+        if os.environ.get("OPENAI_API_TYPE", "").lower() == "ollama":
+            self.index = None
+            return
+            
+        # Configuración normal de Pinecone para Azure
         pinecone.init(api_key=os.environ["MY_PINECONE_API_KEY"],
                       environment=os.environ["MY_PINECONE_ENV"])
         # print(os.environ)
@@ -154,7 +172,8 @@ class AzureGPTWorker(BaseWorker):
 
     def query_llm(self, stop=None, temperature=0.7, top_p=0.95):
         fc_logger.debug(f'Querying with dialogue: {self.dialogue}')
-        assert openai.api_type == 'azure'
+        # Eliminar la aserción que verifica que openai.api_type sea 'azure'
+        # assert openai.api_type == 'azure'
 
         return openai.ChatCompletion.create(deployment_id=self.deployment_name,
                                             model=self.model,

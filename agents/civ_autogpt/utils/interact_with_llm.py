@@ -2,8 +2,9 @@ import json
 import requests
 import os
 
+# Usar un valor predeterminado si la variable de entorno no existe
+url = os.environ.get("LOCAL_LLM_URL", "http://localhost:11434")
 headers = {'Content-Type': 'application/json'}
-url = os.environ["LOCAL_LLM_URL"]
 tmp_dia = [{'role': 'user', 'content':'Hello, Who are you?'}, {'role': 'assistant', 'content':'I am LLM.'}, {'role': 'user', 'content':'Good, Give me an example about how to use you.'}]
 tmp_config = {'temperature':0.7, 'top_p': 0.95, 'repetition_penalty': 1.1}
 

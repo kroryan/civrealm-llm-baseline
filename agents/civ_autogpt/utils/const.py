@@ -12,5 +12,7 @@ TOKEN_LIMIT_TABLE = {
     "text-davinci-002": 2048,
     "vicuna-33B": 2048,
     "Llama2-70B-chat": 2048,
+    "ollama": 8192,
+    "qwen3:latest": 8192
     # "gpt-35-turbo-16k": 16384
 }

@@ -13,10 +13,17 @@
 # You should have received a copy of the GNU General Public License along
 # with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from .gpt_worker import AzureGPTWorker
+import os
+from .ollama_worker import OllamaWorker
+
+# Use OllamaWorker or AzureGPTWorker based on configuration
+if os.environ.get("OPENAI_API_TYPE", "").lower() == "ollama":
+    from .ollama_worker import OllamaWorker as BaseWorker
+else:
+    from .gpt_worker import AzureGPTWorker as BaseWorker
 
 
-class MastabaWorker(AzureGPTWorker):
+class MastabaWorker(BaseWorker):
     def __init__(self, role="controller", **kwargs):
         self.role = role
         super().__init__(**kwargs)

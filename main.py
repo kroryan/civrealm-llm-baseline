@@ -13,6 +13,11 @@
 # You should have received a copy of the GNU General Public License along
 # with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# Cargar variables de entorno desde el archivo .env
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
 import pickle
 import warnings
 import gymnasium
@@ -23,6 +28,7 @@ from civrealm.configs import fc_args
 from civrealm.envs.freeciv_wrapper.llm_wrapper import LLMWrapper
 from agents.utils import print_step, print_action, print_current
 from agents import utils
+from agents.rule_based_agent import RuleBasedAgent
 
 # FIXME: This is a hack to suppress the warning about the gymnasium spaces. Currently Gymnasium does not support hierarchical actions.
 warnings.filterwarnings('ignore',
@@ -31,17 +37,13 @@ warnings.filterwarnings('ignore',
 
 def main():
     """
-    Main
-
     Main entry of the program.
     Starts a single-player Freeciv game against rule-based AI.
     """
-    env = gymnasium.make('civrealm/FreecivLLM-v0')
-    agent = MastabaAgent(max_deconflict_depth=3)
-    # agent = BaseLangAgent()
+    env = gymnasium.make('civrealm/FreecivBase-v0')
+    agent = RuleBasedAgent()
 
     observations, info = env.reset()
-
     done = False
     step = 0
     while not done:
@@ -49,23 +51,15 @@ def main():
             action = agent.act(observations, info)
             observations, reward, terminated, truncated, info = env.step(
                 action)
-            done = terminated or truncated
-
+            print(
+                f'Step: {step}, Turn: {info["turn"]}, Reward: {reward}, Terminated: {terminated}, '
+                f'Truncated: {truncated}, action: {action}')
             step += 1
-            print_step(f'Step: {step}, Turn: {info["turn"]}, ' +
-                       f'Reward: {reward}, Terminated: {terminated}, ' +
-                       f'Truncated: {truncated}')
+            done = terminated or truncated
         except Exception as e:
             fc_logger.error(repr(e))
             raise e
     env.close()
-    '''
-    players, tags, turns, evaluations = env.evaluate_game()
-    '''
-    env.plot_game_scores()
-    game_results = env.get_game_results()
-    print('game results:', game_results)
-
 
 if __name__ == '__main__':
     main()
