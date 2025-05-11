@@ -1,0 +1,8 @@
+# filepath: c:\Users\adryl\Pictures\screenshot\screenshot-capture-system\requirements.txt
+selenium>=4.9.0
+webdriver-manager>=3.8.5
+# Dependencias adicionales que podrían ser necesarias
+requests>=2.28.0
+pillow>=9.3.0  # Para procesamiento de imágenes si se necesita en el futuro
+python-dotenv>=0.21.0  # Para leer variables de entorno desde archivo .env
+threading2>=0.3.1  # Para soporte de hilos avanzados
