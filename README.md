@@ -8,7 +8,7 @@ The list `requirements.txt` in the repository.
 ## USAGE:
 1. Pull the Freeciv-web Docker image:
 ```
-docker pull krory90/freeciv-web:lastest
+docker pull krory90/freeciv-web
 docker tag krory90/freeciv-web:lastest krory90/freeciv-web:lastest
 ```
 
