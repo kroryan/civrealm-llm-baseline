@@ -9,7 +9,7 @@ The list `requirements.txt` in the repository.
 1. Pull the Freeciv-web Docker image:
 ```
 docker pull krory90/freeciv-web
-docker tag krory90/freeciv-web:latest krory90/freeciv-web:latest
+ docker tag krory90/freeciv-web:latest freeciv/freeciv-web:latest
 ```
 
 2. Clone the CivRealm repository and start the Freeciv-web server:
@@ -22,6 +22,8 @@ docker compose up -d freeciv-web
 3. Clone this repository:
 ```
 git clone https://github.com/kroryan/civrealm-llm-baseline
+cd civrealm-llm-baseline
+pip install -r requirements.txt
 ```
 
 4. Set up your environment variables (see below for details).
