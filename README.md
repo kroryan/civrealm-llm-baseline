@@ -9,7 +9,7 @@ The list `requirements.txt` in the repository.
 1. Pull the Freeciv-web Docker image:
 ```
 docker pull krory90/freeciv-web
-docker tag krory90/freeciv-web:lastest krory90/freeciv-web:lastest
+docker tag krory90/freeciv-web:latest krory90/freeciv-web:latest
 ```
 
 2. Clone the CivRealm repository and start the Freeciv-web server:
